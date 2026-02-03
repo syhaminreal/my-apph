@@ -7,20 +7,30 @@ import {
     StyleSheet, 
     Alert,
     KeyboardAvoidingView,
-    Platform
+    Platform,
+    ScrollView
 } from 'react-native';
 import { router } from 'expo-router';
-import { databases, APPWRITE_CONFIG } from '../lib/appwrite';
+import { databases, APPWRITE_CONFIG, COLLECTION_SCHEMA } from '../lib/appwrite';
+
+// Create a type from the schema
+type FormData = Record<string, string>;
 
 export default function Create() {
-    const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
+    const [formData, setFormData] = useState<FormData>({});
     const [loading, setLoading] = useState(false);
 
+    const handleChange = (key: string, value: string) => {
+        setFormData(prev => ({ ...prev, [key]: value }));
+    };
+
     const handleCreate = async () => {
-        if (!title.trim() || !description.trim()) {
-            Alert.alert('Error', 'Please fill in all fields');
-            return;
+        // Validate required fields
+        for (const field of COLLECTION_SCHEMA.fields) {
+            if (field.required && !formData[field.key]?.trim()) {
+                Alert.alert('Error', `${field.label} is required`);
+                return;
+            }
         }
 
         setLoading(true);
@@ -29,18 +39,36 @@ export default function Create() {
                 APPWRITE_CONFIG.databaseId,
                 APPWRITE_CONFIG.collectionId,
                 'unique()',
-                {
-                    title: title.trim(),
-                    description: description.trim(),
-                }
+                formData
             );
             router.back();
         } catch (error) {
-            console.error('Error creating item:', error);
-            Alert.alert('Error', 'Failed to create item. Please check your Appwrite configuration.');
+            console.error('Error creating document:', error);
+            Alert.alert('Error', 'Failed to create document. Check your Appwrite configuration.');
         } finally {
             setLoading(false);
         }
+    };
+
+    const renderField = (field: typeof COLLECTION_SCHEMA.fields[0]) => {
+        const isDateTime = field.type === 'datetime';
+        const placeholder = isDateTime ? 'YYYY-MM-DD HH:mm' : `Enter ${field.label.toLowerCase()}`;
+
+        return (
+            <View key={field.key} style={styles.fieldContainer}>
+                <Text style={styles.label}>{field.label} {field.required && '*'}</Text>
+                <TextInput
+                    style={styles.input}
+                    value={formData[field.key] || ''}
+                    onChangeText={(value) => handleChange(field.key, value)}
+                    placeholder={placeholder}
+                    placeholderTextColor="#999"
+                    multiline={field.key === 'description'}
+                    numberOfLines={field.key === 'description' ? 4 : 1}
+                    textAlignVertical={field.key === 'description' ? 'top' : 'center'}
+                />
+            </View>
+        );
     };
 
     return (
@@ -48,30 +76,11 @@ export default function Create() {
             style={styles.container}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-            <View style={styles.content}>
-                <Text style={styles.title}>Create New Item</Text>
+            <ScrollView contentContainerStyle={styles.content}>
+                <Text style={styles.title}>Create New Event</Text>
                 
                 <View style={styles.form}>
-                    <Text style={styles.label}>Title</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={title}
-                        onChangeText={setTitle}
-                        placeholder="Enter item title"
-                        placeholderTextColor="#999"
-                    />
-                    
-                    <Text style={styles.label}>Description</Text>
-                    <TextInput
-                        style={[styles.input, styles.textArea]}
-                        value={description}
-                        onChangeText={setDescription}
-                        placeholder="Enter item description"
-                        placeholderTextColor="#999"
-                        multiline
-                        numberOfLines={4}
-                        textAlignVertical="top"
-                    />
+                    {COLLECTION_SCHEMA.fields.map(renderField)}
                     
                     <TouchableOpacity 
                         style={[styles.button, loading && styles.buttonDisabled]}
@@ -79,7 +88,7 @@ export default function Create() {
                         disabled={loading}
                     >
                         <Text style={styles.buttonText}>
-                            {loading ? 'Creating...' : 'Create Item'}
+                            {loading ? 'Creating...' : 'Create'}
                         </Text>
                     </TouchableOpacity>
                     
@@ -90,7 +99,7 @@ export default function Create() {
                         <Text style={styles.cancelButtonText}>Cancel</Text>
                     </TouchableOpacity>
                 </View>
-            </View>
+            </ScrollView>
         </KeyboardAvoidingView>
     );
 }
@@ -120,6 +129,9 @@ const styles = StyleSheet.create({
         shadowRadius: 4,
         elevation: 3,
     },
+    fieldContainer: {
+        marginBottom: 16,
+    },
     label: {
         fontSize: 14,
         fontWeight: '600',
@@ -132,18 +144,14 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         padding: 12,
         fontSize: 16,
-        marginBottom: 16,
         color: '#333',
-    },
-    textArea: {
-        minHeight: 100,
     },
     button: {
         backgroundColor: '#007AFF',
         paddingVertical: 14,
         borderRadius: 8,
         alignItems: 'center',
-        marginTop: 8,
+        marginTop: 16,
     },
     buttonDisabled: {
         backgroundColor: '#99BFFF',

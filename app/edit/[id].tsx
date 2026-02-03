@@ -8,52 +8,66 @@ import {
     Alert,
     KeyboardAvoidingView,
     Platform,
-    ActivityIndicator
+    ActivityIndicator,
+    ScrollView
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import { databases, APPWRITE_CONFIG } from '../../lib/appwrite';
+import { databases, APPWRITE_CONFIG, COLLECTION_SCHEMA } from '../../lib/appwrite';
 
-interface Item {
+// Create a type from the schema
+type FormData = Record<string, string>;
+
+interface Document {
     $id: string;
-    title: string;
-    description: string;
+    [key: string]: any;
 }
 
 export default function Edit() {
     const { id } = useLocalSearchParams();
-    const [item, setItem] = useState<Item | null>(null);
-    const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
+    const [document, setDocument] = useState<Document | null>(null);
+    const [formData, setFormData] = useState<FormData>({});
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        fetchItem();
+        fetchDocument();
     }, [id]);
 
-    const fetchItem = async () => {
+    const fetchDocument = async () => {
         try {
             const response = await databases.getDocument(
                 APPWRITE_CONFIG.databaseId,
                 APPWRITE_CONFIG.collectionId,
                 id as string
             );
-            setItem(response as unknown as Item);
-            setTitle((response as unknown as Item).title);
-            setDescription((response as unknown as Item).description);
+            setDocument(response as unknown as Document);
+            
+            // Initialize form data from document
+            const initialData: FormData = {};
+            COLLECTION_SCHEMA.fields.forEach(field => {
+                initialData[field.key] = response[field.key] || '';
+            });
+            setFormData(initialData);
         } catch (error) {
-            console.error('Error fetching item:', error);
-            Alert.alert('Error', 'Failed to fetch item');
+            console.error('Error fetching document:', error);
+            Alert.alert('Error', 'Failed to fetch document');
             router.back();
         } finally {
             setLoading(false);
         }
     };
 
+    const handleChange = (key: string, value: string) => {
+        setFormData(prev => ({ ...prev, [key]: value }));
+    };
+
     const handleUpdate = async () => {
-        if (!title.trim() || !description.trim()) {
-            Alert.alert('Error', 'Please fill in all fields');
-            return;
+        // Validate required fields
+        for (const field of COLLECTION_SCHEMA.fields) {
+            if (field.required && !formData[field.key]?.trim()) {
+                Alert.alert('Error', `${field.label} is required`);
+                return;
+            }
         }
 
         setSaving(true);
@@ -62,25 +76,43 @@ export default function Edit() {
                 APPWRITE_CONFIG.databaseId,
                 APPWRITE_CONFIG.collectionId,
                 id as string,
-                {
-                    title: title.trim(),
-                    description: description.trim(),
-                }
+                formData
             );
             router.back();
         } catch (error) {
-            console.error('Error updating item:', error);
-            Alert.alert('Error', 'Failed to update item');
+            console.error('Error updating document:', error);
+            Alert.alert('Error', 'Failed to update document');
         } finally {
             setSaving(false);
         }
+    };
+
+    const renderField = (field: typeof COLLECTION_SCHEMA.fields[0]) => {
+        const isDateTime = field.type === 'datetime';
+        const placeholder = isDateTime ? 'YYYY-MM-DD HH:mm' : `Enter ${field.label.toLowerCase()}`;
+
+        return (
+            <View key={field.key} style={styles.fieldContainer}>
+                <Text style={styles.label}>{field.label} {field.required && '*'}</Text>
+                <TextInput
+                    style={styles.input}
+                    value={formData[field.key] || ''}
+                    onChangeText={(value) => handleChange(field.key, value)}
+                    placeholder={placeholder}
+                    placeholderTextColor="#999"
+                    multiline={field.key === 'description'}
+                    numberOfLines={field.key === 'description' ? 4 : 1}
+                    textAlignVertical={field.key === 'description' ? 'top' : 'center'}
+                />
+            </View>
+        );
     };
 
     if (loading) {
         return (
             <View style={styles.centerContainer}>
                 <ActivityIndicator size="large" color="#007AFF" />
-                <Text style={styles.loadingText}>Loading item...</Text>
+                <Text style={styles.loadingText}>Loading...</Text>
             </View>
         );
     }
@@ -90,30 +122,11 @@ export default function Edit() {
             style={styles.container}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-            <View style={styles.content}>
-                <Text style={styles.title}>Edit Item</Text>
+            <ScrollView contentContainerStyle={styles.content}>
+                <Text style={styles.title}>Edit</Text>
                 
                 <View style={styles.form}>
-                    <Text style={styles.label}>Title</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={title}
-                        onChangeText={setTitle}
-                        placeholder="Enter item title"
-                        placeholderTextColor="#999"
-                    />
-                    
-                    <Text style={styles.label}>Description</Text>
-                    <TextInput
-                        style={[styles.input, styles.textArea]}
-                        value={description}
-                        onChangeText={setDescription}
-                        placeholder="Enter item description"
-                        placeholderTextColor="#999"
-                        multiline
-                        numberOfLines={4}
-                        textAlignVertical="top"
-                    />
+                    {COLLECTION_SCHEMA.fields.map(renderField)}
                     
                     <TouchableOpacity 
                         style={[styles.button, saving && styles.buttonDisabled]}
@@ -132,7 +145,7 @@ export default function Edit() {
                         <Text style={styles.cancelButtonText}>Cancel</Text>
                     </TouchableOpacity>
                 </View>
-            </View>
+            </ScrollView>
         </KeyboardAvoidingView>
     );
 }
@@ -171,6 +184,9 @@ const styles = StyleSheet.create({
         shadowRadius: 4,
         elevation: 3,
     },
+    fieldContainer: {
+        marginBottom: 16,
+    },
     label: {
         fontSize: 14,
         fontWeight: '600',
@@ -183,18 +199,14 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         padding: 12,
         fontSize: 16,
-        marginBottom: 16,
         color: '#333',
-    },
-    textArea: {
-        minHeight: 100,
     },
     button: {
         backgroundColor: '#007AFF',
         paddingVertical: 14,
         borderRadius: 8,
         alignItems: 'center',
-        marginTop: 8,
+        marginTop: 16,
     },
     buttonDisabled: {
         backgroundColor: '#99BFFF',

@@ -7,34 +7,33 @@ import {
     StyleSheet, 
     Alert,
     ActivityIndicator,
-    RefreshControl 
+    RefreshControl
 } from 'react-native';
 import { router } from 'expo-router';
-import { databases, APPWRITE_CONFIG } from '../lib/appwrite';
+import { databases, APPWRITE_CONFIG, COLLECTION_SCHEMA } from '../lib/appwrite';
 import { Query } from 'react-native-appwrite';
 
-interface Item {
+interface Document {
     $id: string;
-    title: string;
-    description: string;
+    [key: string]: any;
 }
 
 export default function Index() {
-    const [items, setItems] = useState<Item[]>([]);
+    const [documents, setDocuments] = useState<Document[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    const fetchItems = async () => {
+    const fetchDocuments = async () => {
         try {
             const response = await databases.listDocuments(
                 APPWRITE_CONFIG.databaseId,
                 APPWRITE_CONFIG.collectionId,
                 [Query.orderDesc('$createdAt')]
             );
-            setItems(response.documents as unknown as Item[]);
+            setDocuments(response.documents as unknown as Document[]);
         } catch (error) {
-            console.error('Error fetching items:', error);
-            Alert.alert('Error', 'Failed to fetch items. Make sure Appwrite is configured correctly.');
+            console.error('Error fetching documents:', error);
+            Alert.alert('Error', 'Failed to fetch documents. Check your Appwrite configuration.');
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -42,17 +41,17 @@ export default function Index() {
     };
 
     useEffect(() => {
-        fetchItems();
+        fetchDocuments();
     }, []);
 
     const onRefresh = () => {
         setRefreshing(true);
-        fetchItems();
+        fetchDocuments();
     };
 
     const handleDelete = (id: string) => {
         Alert.alert(
-            'Delete Item',
+            'Delete',
             'Are you sure you want to delete this item?',
             [
                 { text: 'Cancel', style: 'cancel' },
@@ -66,10 +65,10 @@ export default function Index() {
                                 APPWRITE_CONFIG.collectionId,
                                 id
                             );
-                            fetchItems();
+                            fetchDocuments();
                         } catch (error) {
-                            console.error('Error deleting item:', error);
-                            Alert.alert('Error', 'Failed to delete item');
+                            console.error('Error deleting document:', error);
+                            Alert.alert('Error', 'Failed to delete document');
                         }
                     }
                 }
@@ -77,11 +76,30 @@ export default function Index() {
         );
     };
 
-    const renderItem = ({ item }: { item: Item }) => (
+    const formatFieldValue = (value: any, type: string): string => {
+        if (value === null || value === undefined) return 'N/A';
+        
+        if (type === 'datetime') {
+            try {
+                const date = new Date(value);
+                return date.toLocaleString();
+            } catch {
+                return String(value);
+            }
+        }
+        
+        return String(value);
+    };
+
+    const renderItem = ({ item }: { item: Document }) => (
         <View style={styles.card}>
             <View style={styles.cardContent}>
-                <Text style={styles.title}>{item.title}</Text>
-                <Text style={styles.description}>{item.description}</Text>
+                {COLLECTION_SCHEMA.fields.map(field => (
+                    <Text key={field.key} style={styles.field}>
+                        <Text style={styles.fieldLabel}>{field.label}: </Text>
+                        {formatFieldValue(item[field.key], field.type)}
+                    </Text>
+                ))}
             </View>
             <View style={styles.cardActions}>
                 <TouchableOpacity 
@@ -104,7 +122,7 @@ export default function Index() {
         return (
             <View style={styles.centerContainer}>
                 <ActivityIndicator size="large" color="#007AFF" />
-                <Text style={styles.loadingText}>Loading items...</Text>
+                <Text style={styles.loadingText}>Loading...</Text>
             </View>
         );
     }
@@ -112,23 +130,23 @@ export default function Index() {
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Items</Text>
+                <Text style={styles.headerTitle}>Events</Text>
                 <TouchableOpacity 
                     style={styles.addButton}
                     onPress={() => router.push('/create')}
                 >
-                    <Text style={styles.addButtonText}>+ Add Item</Text>
+                    <Text style={styles.addButtonText}>+ Add New</Text>
                 </TouchableOpacity>
             </View>
 
-            {items.length === 0 ? (
+            {documents.length === 0 ? (
                 <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>No items yet</Text>
-                    <Text style={styles.emptySubText}>Tap "Add Item" to create your first item</Text>
+                    <Text style={styles.emptyText}>No documents yet</Text>
+                    <Text style={styles.emptySubText}>Tap "Add New" to create your first item</Text>
                 </View>
             ) : (
                 <FlatList
-                    data={items}
+                    data={documents}
                     renderItem={renderItem}
                     keyExtractor={(item) => item.$id}
                     contentContainerStyle={styles.listContent}
@@ -214,15 +232,14 @@ const styles = StyleSheet.create({
     cardContent: {
         marginBottom: 12,
     },
-    title: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#333',
-        marginBottom: 4,
-    },
-    description: {
+    field: {
         fontSize: 14,
         color: '#666',
+        marginBottom: 4,
+    },
+    fieldLabel: {
+        fontWeight: '600',
+        color: '#333',
     },
     cardActions: {
         flexDirection: 'row',
