@@ -12,6 +12,7 @@ import {
 import { router } from 'expo-router';
 import { databases, APPWRITE_CONFIG, COLLECTION_SCHEMA } from '../lib/appwrite';
 import { Query } from 'react-native-appwrite';
+import { showAlert, logOperationStart, logOperationComplete, logApiError, parseAppwriteError } from '../lib/alerts';
 
 interface Document {
     $id: string;
@@ -24,6 +25,8 @@ export default function Index() {
     const [refreshing, setRefreshing] = useState(false);
 
     const fetchDocuments = async () => {
+        logOperationStart('FETCH_DOCUMENTS', 'Loading all events from Appwrite');
+        
         try {
             const response = await databases.listDocuments(
                 APPWRITE_CONFIG.databaseId,
@@ -31,9 +34,11 @@ export default function Index() {
                 [Query.orderDesc('$createdAt')]
             );
             setDocuments(response.documents as unknown as Document[]);
+            logOperationComplete('FETCH_DOCUMENTS', { count: response.documents.length });
         } catch (error) {
-            console.error('Error fetching documents:', error);
-            Alert.alert('Error', 'Failed to fetch documents. Check your Appwrite configuration.');
+            logApiError('FETCH_DOCUMENTS', error);
+            const userMessage = parseAppwriteError(error);
+            showAlert('error', 'Fetch Failed', userMessage);
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -49,26 +54,37 @@ export default function Index() {
         fetchDocuments();
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = (id: string, eventName?: string) => {
+        // Show confirmation alert
+        showAlert('warning', 'Confirm Delete', `Are you sure you want to delete "${eventName || 'this event'}"?`);
+        
         Alert.alert(
-            'Delete',
-            'Are you sure you want to delete this item?',
+            'Delete Event',
+            `Are you sure you want to delete "${eventName || 'this event'}"? This action cannot be undone.`,
             [
                 { text: 'Cancel', style: 'cancel' },
                 { 
                     text: 'Delete', 
                     style: 'destructive',
                     onPress: async () => {
+                        logOperationStart('DELETE_DOCUMENT', `Deleting document: ${id}`);
+                        
                         try {
                             await databases.deleteDocument(
                                 APPWRITE_CONFIG.databaseId,
                                 APPWRITE_CONFIG.collectionId,
                                 id
                             );
+                            
+                            logOperationComplete('DELETE_DOCUMENT', { id });
+                            showAlert('success', 'Deleted', 'Event deleted successfully!', `Deleted event: ${eventName || id}`);
+                            
+                            // Refresh the list
                             fetchDocuments();
                         } catch (error) {
-                            console.error('Error deleting document:', error);
-                            Alert.alert('Error', 'Failed to delete document');
+                            logApiError('DELETE_DOCUMENT', error);
+                            const userMessage = parseAppwriteError(error);
+                            showAlert('error', 'Delete Failed', userMessage);
                         }
                     }
                 }
@@ -110,7 +126,7 @@ export default function Index() {
                 </TouchableOpacity>
                 <TouchableOpacity 
                     style={[styles.button, styles.deleteButton]}
-                    onPress={() => handleDelete(item.$id)}
+                    onPress={() => handleDelete(item.$id, item.EventName)}
                 >
                     <Text style={[styles.buttonText, styles.deleteButtonText]}>Delete</Text>
                 </TouchableOpacity>

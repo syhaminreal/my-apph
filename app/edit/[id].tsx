@@ -5,7 +5,6 @@ import {
     TextInput, 
     TouchableOpacity, 
     StyleSheet, 
-    Alert,
     KeyboardAvoidingView,
     Platform,
     ActivityIndicator,
@@ -13,6 +12,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { databases, APPWRITE_CONFIG, COLLECTION_SCHEMA } from '../../lib/appwrite';
+import { showAlert, logOperationStart, logOperationComplete, logApiError, parseAppwriteError } from '../../lib/alerts';
 
 // Create a type from the schema
 type FormData = Record<string, string>;
@@ -34,6 +34,8 @@ export default function Edit() {
     }, [id]);
 
     const fetchDocument = async () => {
+        logOperationStart('FETCH_DOCUMENT', `Loading document: ${id}`);
+        
         try {
             const response = await databases.getDocument(
                 APPWRITE_CONFIG.databaseId,
@@ -48,9 +50,12 @@ export default function Edit() {
                 initialData[field.key] = response[field.key] || '';
             });
             setFormData(initialData);
+            
+            logOperationComplete('FETCH_DOCUMENT', { id });
         } catch (error) {
-            console.error('Error fetching document:', error);
-            Alert.alert('Error', 'Failed to fetch document');
+            logApiError('FETCH_DOCUMENT', error);
+            const userMessage = parseAppwriteError(error);
+            showAlert('error', 'Fetch Failed', userMessage);
             router.back();
         } finally {
             setLoading(false);
@@ -65,12 +70,14 @@ export default function Edit() {
         // Validate required fields
         for (const field of COLLECTION_SCHEMA.fields) {
             if (field.required && !formData[field.key]?.trim()) {
-                Alert.alert('Error', `${field.label} is required`);
+                showAlert('error', 'Validation Error', `${field.label} is required`);
                 return;
             }
         }
 
         setSaving(true);
+        logOperationStart('UPDATE_DOCUMENT', `Updating document: ${id}`);
+        
         try {
             await databases.updateDocument(
                 APPWRITE_CONFIG.databaseId,
@@ -78,10 +85,18 @@ export default function Edit() {
                 id as string,
                 formData
             );
-            router.back();
+            
+            logOperationComplete('UPDATE_DOCUMENT', { id, changes: Object.keys(formData) });
+            showAlert('success', 'Saved', 'Event updated successfully!', `Updated event: ${formData.EventName || 'Unknown'}`);
+            
+            // Navigate back after a short delay to show the success alert
+            setTimeout(() => {
+                router.back();
+            }, 1500);
         } catch (error) {
-            console.error('Error updating document:', error);
-            Alert.alert('Error', 'Failed to update document');
+            logApiError('UPDATE_DOCUMENT', error);
+            const userMessage = parseAppwriteError(error);
+            showAlert('error', 'Update Failed', userMessage);
         } finally {
             setSaving(false);
         }

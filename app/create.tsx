@@ -5,13 +5,13 @@ import {
     TextInput, 
     TouchableOpacity, 
     StyleSheet, 
-    Alert,
     KeyboardAvoidingView,
     Platform,
     ScrollView
 } from 'react-native';
 import { router } from 'expo-router';
 import { databases, APPWRITE_CONFIG, COLLECTION_SCHEMA } from '../lib/appwrite';
+import { showAlert, logOperationStart, logOperationComplete, logApiError, parseAppwriteError } from '../lib/alerts';
 
 // Create a type from the schema
 type FormData = Record<string, string>;
@@ -28,12 +28,14 @@ export default function Create() {
         // Validate required fields
         for (const field of COLLECTION_SCHEMA.fields) {
             if (field.required && !formData[field.key]?.trim()) {
-                Alert.alert('Error', `${field.label} is required`);
+                showAlert('error', 'Validation Error', `${field.label} is required`);
                 return;
             }
         }
 
         setLoading(true);
+        logOperationStart('CREATE_DOCUMENT', 'Creating new event document');
+        
         try {
             await databases.createDocument(
                 APPWRITE_CONFIG.databaseId,
@@ -41,10 +43,18 @@ export default function Create() {
                 'unique()',
                 formData
             );
-            router.back();
+            
+            logOperationComplete('CREATE_DOCUMENT', { fields: Object.keys(formData) });
+            showAlert('success', 'Success', 'Event created successfully!', `Created event: ${formData.EventName || 'Unknown'}`);
+            
+            // Navigate back after a short delay to show the success alert
+            setTimeout(() => {
+                router.back();
+            }, 1500);
         } catch (error) {
-            console.error('Error creating document:', error);
-            Alert.alert('Error', 'Failed to create document. Check your Appwrite configuration.');
+            logApiError('CREATE_DOCUMENT', error);
+            const userMessage = parseAppwriteError(error);
+            showAlert('error', 'Creation Failed', userMessage);
         } finally {
             setLoading(false);
         }
